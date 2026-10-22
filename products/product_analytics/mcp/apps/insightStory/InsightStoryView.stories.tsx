@@ -119,7 +119,9 @@ export const ChapterBesideTheChart: Story = {
     render: renderStory,
     play: async ({ canvasElement }) => {
         // The step and the marker on the chart share this name, and either one opens the chapter.
-        const [button] = within(canvasElement).getAllByRole('button', { name: 'Chapter 2: A spike on October 2' })
+        const [button] = await within(canvasElement).findAllByRole('button', {
+            name: 'Chapter 2: A spike on October 2',
+        })
         await userEvent.click(button!)
     },
 }
