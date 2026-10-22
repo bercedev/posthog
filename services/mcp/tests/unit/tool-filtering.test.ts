@@ -1111,6 +1111,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'insight-data-checks',
             'logs-agent-tools',
             'workflows-transactional-email-api',
+            'workflows-email-domain-agent-setup',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
