@@ -6,7 +6,7 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
 from products.experiments.backend.health.condition_changes import parse_release_conditions
 from products.experiments.backend.health.condition_set_traffic import grades_by_pinned_share
@@ -18,6 +18,7 @@ from products.experiments.backend.health.context import (
     HealthContext,
     parse_flag_state,
 )
+from products.experiments.backend.health.skips import FLAG_DELETED, NOT_AFTER_END, CheckSkip, not_applicable
 from products.experiments.backend.health.test.factories import (
     DRAFT,
     ENDED,
@@ -193,8 +194,12 @@ class TestForcedVariantReleaseCondition(TestCase):
                 _context([{**EVERYONE, "variant": "control"}], variants=SHIPPED_SPLIT),
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "control", None),
             ),
-            ("ended", _context([{**EVERYONE, "variant": "control"}], status=ENDED), None),
-            ("deleted_flag", _context([{**EVERYONE, "variant": "control"}], deleted=True), None),
+            ("ended", _context([{**EVERYONE, "variant": "control"}], status=ENDED), not_applicable(NOT_AFTER_END)),
+            (
+                "deleted_flag",
+                _context([{**EVERYONE, "variant": "control"}], deleted=True),
+                not_applicable(FLAG_DELETED),
+            ),
             (
                 "pinned_share_under_one_percent",
                 _context([{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 5, 2: 995})),
@@ -291,14 +296,13 @@ class TestForcedVariantReleaseCondition(TestCase):
         self,
         _name: str,
         ctx: HealthContext,
-        expected: tuple[str, ExperimentHealthFindingSeverity, str, str, float | None] | None,
+        expected: tuple[str, ExperimentHealthFindingSeverity, str, str, float | None] | CheckSkip | None,
     ) -> None:
         finding = forced_variant_release_condition(ctx)
 
-        if expected is None:
-            self.assertIsNone(finding)
+        if not isinstance(finding, ExperimentHealthFinding) or not isinstance(expected, tuple):
+            self.assertEqual(finding, expected)
             return
-        assert finding is not None
         self.assertEqual(
             (
                 finding.subcode,
@@ -345,7 +349,7 @@ class TestForcedVariantReleaseCondition(TestCase):
     ) -> None:
         finding = forced_variant_release_condition(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (finding.evidence.get("reason"), "can't measure" in finding.detail), (expected_reason, says_not_measurable)
         )
@@ -385,7 +389,7 @@ class TestForcedVariantReleaseCondition(TestCase):
             _context([{**STAFF, "variant": "test"}, EVERYONE], groups_at_launch=groups_at_launch)
         )
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             "The override of Set 1 was set on September 12, 2026 at 3:04 PM CEST, after launch, so users it matches "
             "who were exposed before may have switched variants." in finding.detail,
@@ -409,7 +413,7 @@ class TestForcedVariantReleaseCondition(TestCase):
             )
         )
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (finding.title, finding.detail, finding.evidence["variant_property"]),
             (
