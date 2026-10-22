@@ -52,6 +52,9 @@ class SandboxedEvalCase(BaseEvalCase):
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""
 
+    inherit_demo_data: bool = True
+    """Start with Hedgebox data. False gives the setup hook an empty isolated project."""
+
     disable_bundled_skills: bool = False
     """Remove skills baked into the sandbox image for this case.
 
