@@ -6,9 +6,11 @@ import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/ty
 
 import type { InsightStoryData } from 'products/product_analytics/mcp/apps/insightStory/insightStoryTypes'
 import { chapterFacts, overviewFacts } from 'products/product_analytics/mcp/apps/insightStory/storyFacts'
+import { placeMarkers } from 'products/product_analytics/mcp/apps/insightStory/storyMarkerPlacement'
 import { buildStoryPages } from 'products/product_analytics/mcp/apps/insightStory/storyPages'
 
 const DAYS = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']
+const MARKER_LAYOUT = { radius: 10, distance: 22, bounds: { left: 0, top: 0, right: 400, bottom: 300 } }
 const HOURS = ['2026-10-01 22:00:00', '2026-10-01 23:00:00', '2026-10-02 00:00:00', '2026-10-02 01:00:00']
 const WEEKS = ['2026-09-21', '2026-09-28', '2026-10-05']
 const MONTHS = ['2025-12-01', '2026-01-01', '2026-02-01']
@@ -208,5 +210,69 @@ describe('insight-story-show', () => {
 
         expect(facts).not.toContain('below')
         expect(facts).toContain('not over yet')
+    })
+
+    it('puts a chart marker straight above a peak', () => {
+        const peak = [
+            { x: 100, y: 200 },
+            { x: 120, y: 50 },
+            { x: 140, y: 200 },
+        ]
+
+        const [center] = placeMarkers([{ x: 120, y: 50 }], { lines: [peak], bars: [] }, MARKER_LAYOUT)
+
+        expect(center?.x).toBeCloseTo(120)
+        expect(center?.y).toBeCloseTo(28)
+    })
+
+    it.each([
+        {
+            name: 'a line that falls into the last point at the right edge',
+            line: [
+                { x: 320, y: 120 },
+                { x: 360, y: 160 },
+                { x: 400, y: 200 },
+            ],
+            anchors: [{ x: 400, y: 200 }],
+        },
+        {
+            name: 'a spike that reaches the top of the chart',
+            line: [
+                { x: 100, y: 200 },
+                { x: 120, y: 8 },
+                { x: 140, y: 200 },
+            ],
+            anchors: [{ x: 120, y: 8 }],
+        },
+        {
+            name: 'two marked points next to each other',
+            line: [
+                { x: 80, y: 150 },
+                { x: 160, y: 150 },
+            ],
+            anchors: [
+                { x: 110, y: 150 },
+                { x: 120, y: 150 },
+            ],
+        },
+    ])('keeps chart markers off the line, apart and inside the chart for $name', ({ line, anchors }) => {
+        const centers = placeMarkers(anchors, { lines: [line], bars: [] }, MARKER_LAYOUT)
+        const { radius, bounds } = MARKER_LAYOUT
+
+        for (const [index, center] of centers.entries()) {
+            expect(center.x - radius).toBeGreaterThanOrEqual(bounds.left)
+            expect(center.x + radius).toBeLessThanOrEqual(bounds.right)
+            expect(center.y - radius).toBeGreaterThanOrEqual(bounds.top)
+            expect(center.y + radius).toBeLessThanOrEqual(bounds.bottom)
+            for (const [from, to] of line.slice(1).map((point, i) => [line[i]!, point] as const)) {
+                for (let t = 0; t <= 1; t += 0.02) {
+                    const onLine = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }
+                    expect(Math.hypot(center.x - onLine.x, center.y - onLine.y)).toBeGreaterThanOrEqual(radius)
+                }
+            }
+            for (const other of centers.slice(index + 1)) {
+                expect(Math.hypot(center.x - other.x, center.y - other.y)).toBeGreaterThanOrEqual(radius * 2)
+            }
+        }
     })
 })
