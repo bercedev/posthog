@@ -67,7 +67,7 @@ def insert_events(team: Team, events: list[UploadEvent]) -> None:
                 f"id{index}": event.person_id,
                 f"distinct{index}": event.distinct_id,
                 f"time{index}": event.timestamp,
-                f"props{index}": json.dumps({"email": f"{event.distinct_id}@example.com"}),
+                f"props{index}": "{}",
             }
         )
         person_values.append(
@@ -93,7 +93,7 @@ def insert_events(team: Team, events: list[UploadEvent]) -> None:
                 "distinct_id": event.distinct_id,
                 "elements_chain": "",
                 "person_id": event.person_id,
-                "person_properties": json.dumps({"email": f"{event.distinct_id}@example.com"}),
+                "person_properties": "{}",
                 "person_created_at": people[event.distinct_id].timestamp,
                 "person_mode": "full",
                 "created_at": event.timestamp,
@@ -135,8 +135,8 @@ def seed_upload_case(
                         {
                             "type": "UploadError",
                             "value": UPLOAD_ERROR,
-                            "url": "https://app.hedgebox.test/files/",
-                            "source": "https://app.hedgebox.test/static/upload.js",
+                            "url": "https://hedgebox.net/files/",
+                            "source": "https://hedgebox.net/static/upload.js",
                             "function": "prepareUpload",
                             "fingerprint": UPLOAD_FINGERPRINT,
                         },
@@ -169,7 +169,9 @@ def seed_upload_case(
         for row in result.results
     ]
     expected_counts = Counter(
-        (str(event.properties["$browser"]), str(event.properties["app_version"]), event.event) for event in events
+        (str(event.properties["$browser"]), str(event.properties["app_version"]), event.event)
+        for event in events
+        if event.event in ("signed_up", "uploaded_file", "$exception")
     )
     actual_counts = {
         (str(row[0]), str(row[1]), event): int(row[column])

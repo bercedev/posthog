@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, Literal
+from uuid import UUID
 
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -43,8 +44,17 @@ class TestFirstReportFixture(TestCase):
         self.assertTrue(all(anchor - event.timestamp > timedelta(days=1) for event in events))
         signups = {event.person_id: event.timestamp for event in events if event.event == "signed_up"}
         self.assertTrue(
-            all(event.timestamp > signups[event.person_id] for event in events if event.event != "signed_up")
+            all(
+                event.timestamp > signups[event.person_id]
+                for event in events
+                if event.event in ("uploaded_file", "$exception")
+            )
         )
+        self.assertEqual(
+            {event.person_id for event in events if event.event == "$identify"},
+            set(signups),
+        )
+        self.assertTrue(all(str(UUID(event.distinct_id)) == event.distinct_id for event in events))
 
     def test_sparse_project_has_data_but_no_evidence_of_a_regression(self) -> None:
         events = upload_events(datetime(2026, 1, 1, tzinfo=UTC), scenario="sparse")
