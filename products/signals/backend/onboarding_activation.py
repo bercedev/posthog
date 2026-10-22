@@ -62,9 +62,9 @@ class InboxOnboardingActivation:
             return False
         context = build_first_report_context(team, user)
         if not context.has_data():
-            set_first_report_state(
-                team.id, FirstReportStatus.INCOMPLETE if context.data_is_unknown() else FirstReportStatus.NO_DATA
-            )
+            if context.data_is_unknown():
+                raise RuntimeError("Project data availability is unknown")
+            set_first_report_state(team.id, FirstReportStatus.NO_DATA)
             return False
         scout, _ = SignalScoutConfig.objects.for_team(team.id).get_or_create(
             team_id=team.id,

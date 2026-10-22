@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -224,7 +224,6 @@ def search_recent_runs(
     skill_version: int | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
     exclude_skill_name: str | None = None,
-    exclude_skill_names: Collection[str] = (),
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
@@ -245,7 +244,6 @@ def search_recent_runs(
     clamped_limit = _clamp_limit(limit)
     qs = (
         SignalScoutRun.objects.filter(team_id=team_id)
-        .exclude(skill_name__in=exclude_skill_names)
         .exclude(metadata__has_key="scout_trial")
         .select_related("task_run")
         .only(*RUN_SUMMARY_FIELDS)
@@ -507,9 +505,7 @@ class FleetFindingsSummary:
         return asdict(self)
 
 
-def fleet_findings_summary(
-    *, team_id: int, window_hours: int = DEFAULT_FINDINGS_WINDOW_HOURS, exclude_skill_names: Collection[str] = ()
-) -> FleetFindingsSummary:
+def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS_WINDOW_HOURS) -> FleetFindingsSummary:
     """Summarise the output the fleet produced in the recent window, in a single query.
 
     Replaces the client-side tally that walked the whole paginated runs window just to count
@@ -533,7 +529,6 @@ def fleet_findings_summary(
     # span as its report tallies instead of a per-scout depth that doesn't sum across a fleet.
     run_count = (
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
-        .exclude(skill_name__in=exclude_skill_names)
         .exclude(metadata__has_key="scout_trial")
         .count()
     )
@@ -544,7 +539,6 @@ def fleet_findings_summary(
     # candidates without a task run join and sort them below on completion times read by primary key.
     candidates = list(
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
-        .exclude(skill_name__in=exclude_skill_names)
         .exclude(metadata__has_key="scout_trial")
         .filter(Q(emitted_count__gt=0) | touched_a_report)
         .order_by("-created_at", "-id")

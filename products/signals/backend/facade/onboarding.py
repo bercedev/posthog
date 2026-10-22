@@ -17,6 +17,7 @@ from posthog.transactional_email import is_transactional_email_configured
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
 from products.signals.backend.first_report_notification import register_first_report_notification
 from products.signals.backend.first_report_scout import first_report_state
+from products.signals.backend.first_report_scout_types import FirstReportStatus
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalFirstReportNotification,
@@ -53,6 +54,10 @@ def onboarding_priorities() -> Sequence[tuple[str, str | Promise]]:
     return AutonomyPriority.choices
 
 
+def onboarding_first_report_statuses() -> Sequence[tuple[str, str | Promise]]:
+    return FirstReportStatus.choices
+
+
 def can_create_onboarding_scout(user: User, team: Team) -> bool:
     return can_create_scout(user, team)
 
@@ -66,7 +71,12 @@ class InboxOnboarding:
 
     def _state(self, config: SignalTeamConfig) -> dict[str, Any]:
         state = config.onboarding or {}
-        if any((state.get("draft") or {}).get(key) for key in ("suggestions", "activation_scouts")):
+        if (
+            self.team.parent_team_id
+            or state.get("first_report")
+            or state.get("jobs", {}).get("scout")
+            or any((state.get("draft") or {}).get(key) for key in ("suggestions", "activation_scouts"))
+        ):
             self.authorize_scouts(False)
         jobs = dict(state.get("jobs", {}))
         if (
@@ -142,8 +152,9 @@ class InboxOnboarding:
             self._enqueue_activation_jobs(config)
             return self._state(config)
 
-        if (config.onboarding or {}).get("variant") == "test-github":
+        if (config.onboarding or {}).get("variant") in ("test-github", "test-ui"):
             self.authorize_scouts(True)
+        if (config.onboarding or {}).get("variant") == "test-github":
             if not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
                 for item in draft["suggestions"]
@@ -217,7 +228,7 @@ class InboxOnboarding:
                     "activated_by": user.pk,
                 }
                 if state.get("variant") in ("test-github", "test-ui"):
-                    config.onboarding["jobs"] = {"scout": "pending"}
+                    config.onboarding["jobs"] = {"scout": "pending", "recommendations": "skipped"}
                 if state.get("variant") == "test-github":
                     config.onboarding["jobs"]["recommendations"] = "pending"
                 config.save(
@@ -234,8 +245,7 @@ class InboxOnboarding:
         state = config.onboarding or {}
         if state.get("variant") not in ("test-github", "test-ui"):
             return
-        if state.get("variant") == "test-github":
-            self.authorize_scouts(True)
+        self.authorize_scouts(True)
         from products.signals.backend.tasks import (
             launch_inbox_onboarding_job,  # noqa: PLC0415 - keep the Temporal graph off API route loading
         )

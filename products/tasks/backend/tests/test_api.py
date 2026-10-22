@@ -405,7 +405,7 @@ class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
 
 
 class TestScoutTrialTaskVisibility(BaseTaskAPITest):
-    def test_first_report_investigation_is_hidden_from_customer_task_endpoints(self) -> None:
+    def test_customer_can_follow_the_first_report_investigation(self) -> None:
         task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -415,11 +415,11 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         )
         run = TaskRun.objects.create(team=self.team, task=task)
         base = f"/api/projects/{self.team.id}/tasks"
-        assert self.client.get(f"{base}/{task.id}/").status_code == 404
-        assert self.client.get(f"{base}/{task.id}/runs/{run.id}/").status_code == 404
+        assert self.client.get(f"{base}/{task.id}/").status_code == 200
+        assert self.client.get(f"{base}/{task.id}/runs/{run.id}/").status_code == 200
         response = self.client.get(f"{base}/")
         assert response.status_code == 200
-        assert str(task.id) not in {row["id"] for row in response.json()["results"]}
+        assert str(task.id) in {row["id"] for row in response.json()["results"]}
 
     def setUp(self) -> None:
         super().setUp()

@@ -102,7 +102,7 @@ class FirstReportContext(BaseModel):
 
 def _product_data_volume(team: Team, user: User, table: list[str], timestamp: str) -> ProductDataVolume:
     volume = ProductDataVolume(rows=None)
-    workload = Workload.LOGS if table == ["logs"] else Workload.OFFLINE
+    workload = Workload.LOGS if table in (["logs"], ["posthog", "trace_spans"]) else Workload.OFFLINE
     try:
         result = execute_hogql_query(
             query=parse_select(
@@ -217,6 +217,12 @@ def first_report_state(team_id: int) -> dict[str, object]:
             if timezone.now() - started_at > timedelta(seconds=FIRST_REPORT_SCOUT_TIMEOUT_SECONDS + 300):
                 return {"status": FirstReportStatus.INCOMPLETE}
         return state
+    progress = {
+        "scout_run_id": str(run.id),
+        "task_id": str(run.task_run.task_id),
+        "task_run_id": str(run.task_run_id),
+        "started_at": run.task_run.created_at.isoformat(),
+    }
     reports = SignalReport.objects.filter(
         team_id=team_id,
         id__in=run.emitted_report_ids or [],
@@ -224,15 +230,20 @@ def first_report_state(team_id: int) -> dict[str, object]:
     )
     report = reports.order_by("first_visible_at").first()
     if report is not None:
-        return {"status": FirstReportStatus.REPORT_CREATED, "report_id": str(report.id)}
+        return {**progress, "status": FirstReportStatus.REPORT_CREATED, "report_id": str(report.id)}
     result = (run.metadata or {}).get("first_report_result")
     if result:
         parsed = FirstReportScoutResult.model_validate(result)
         return {
+            **progress,
             "status": FirstReportStatus.INCOMPLETE if parsed.outcome == "report_created" else parsed.outcome,
             "checked_products": parsed.checked_products,
             "missing_data": parsed.missing_data,
         }
-    if run.task_run and run.task_run.status in ("completed", "failed", "cancelled"):
-        return {"status": FirstReportStatus.INCOMPLETE}
-    return {"status": FirstReportStatus.RUNNING}
+    if run.task_run.status in (
+        "completed",
+        "failed",
+        "cancelled",
+    ) or timezone.now() - run.task_run.created_at > timedelta(seconds=FIRST_REPORT_SCOUT_TIMEOUT_SECONDS + 300):
+        return {**progress, "status": FirstReportStatus.INCOMPLETE}
+    return {**progress, "status": FirstReportStatus.RUNNING}

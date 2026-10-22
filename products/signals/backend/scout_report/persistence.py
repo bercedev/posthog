@@ -287,8 +287,7 @@ def create_scout_report(
             # and activity log can surface the scout's transcript — without it the run is only visible as
             # an anonymous "by agent" byline on the rows above. Written in-txn for the same no-divergence
             # reason as the note; skipped when the run isn't bridged to a resolvable task.
-            # The onboarding scout's run is staff-only; its report is customer-facing.
-            if run is not None and attribution.task_id is not None and run.skill_name != FIRST_REPORT_SCOUT:
+            if run is not None and attribution.task_id is not None:
                 SignalReportArtefact.add_log(
                     team_id=team_id,
                     report_id=report_id,
@@ -382,7 +381,7 @@ def create_scout_report(
         # Stamp the authoring scout onto every backing signal so the inbox can render "Scout · <name>"
         # on the evidence card + header, matching the emit_signal path. `run` is the single place the
         # skill_name is available (bound signals otherwise ship empty extra, see `_build_signals`).
-        skill_name = run.skill_name if run is not None and run.skill_name != FIRST_REPORT_SCOUT else None
+        skill_name = run.skill_name if run is not None else None
         for signal, document_id in zip(signals, document_ids):
             _emit_bound_signal(
                 team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
@@ -1564,8 +1563,6 @@ def scout_task_run_content(run: SignalScoutRun, task_id: str) -> TaskRunArtefact
 
 
 def scout_report_provenance(run: SignalScoutRun | None) -> NoteArtefact:
-    if run is not None and run.skill_name == FIRST_REPORT_SCOUT:
-        return NoteArtefact(note="Authored by the first Self-driving investigation.", author="signals_scout")
     return NoteArtefact(
         note=(
             f"Authored directly by the `{run.skill_name}` Signals scout via emit_report."

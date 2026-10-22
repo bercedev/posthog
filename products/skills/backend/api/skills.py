@@ -98,7 +98,7 @@ class LLMSkillViewSet(
     ]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
-        return get_active_skill_queryset(self.team).exclude(name__in=self._hidden_skill_names())
+        return get_active_skill_queryset(self.team)
 
     def get_renderers(self) -> list[BaseRenderer]:
         renderers = super().get_renderers()
@@ -240,7 +240,7 @@ class LLMSkillViewSet(
                 user_access_control=self.user_access_control,
                 params=params,
                 query_params=request.query_params,
-            ).exclude(name__in=self._hidden_skill_names())
+            )
         )
         page = self.paginate_queryset(queryset)
         if page is not None:

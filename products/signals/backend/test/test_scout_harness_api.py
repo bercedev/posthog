@@ -204,7 +204,7 @@ def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) ->
 
 class TestScoutHarnessRunsAPI(APIBaseTest):
     @parameterized.expand([(False,), (True,)])
-    def test_first_report_runs_are_visible_only_to_staff(self, is_staff: bool) -> None:
+    def test_first_report_runs_are_available_through_the_api(self, is_staff: bool) -> None:
         self.user.is_staff = is_staff
         self.user.save()
         config = SignalScoutConfig.objects.create(
@@ -214,16 +214,12 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         ordinary = _make_run(self.team)
         response = self.client.get(self._list_url())
         assert response.status_code == 200
-        assert {row["run_id"] for row in response.json()} == (
-            {str(run.id), str(ordinary.id)} if is_staff else {str(ordinary.id)}
-        )
-        assert self.client.get(self._detail_url(str(run.id))).status_code == (200 if is_staff else 404)
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        assert self.client.get(self._detail_url(str(run.id))).status_code == 200
         response = self.client.get(self._list_url() + "recent-per-scout/")
-        assert {row["run_id"] for row in response.json()} == (
-            {str(run.id), str(ordinary.id)} if is_staff else {str(ordinary.id)}
-        )
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
         response = self.client.post(self._list_url() + "emissions/batch/", {"run_ids": [str(run.id)]}, format="json")
-        assert response.status_code == (200 if is_staff else 404)
+        assert response.status_code == 200
 
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/"
@@ -3200,7 +3196,7 @@ class TestPrecheckQueryValidation(SimpleTestCase):
 
 class TestScoutHarnessConfigAPI(APIBaseTest):
     @parameterized.expand([(False,), (True,)])
-    def test_first_report_config_is_hidden_from_customers(self, is_staff: bool) -> None:
+    def test_first_report_config_is_available_but_cannot_be_rerun(self, is_staff: bool) -> None:
         self.user.is_staff = is_staff
         self.user.save()
         self._make_skill("signals-scout-first-report")
@@ -3209,13 +3205,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
         response = self.client.get(self._list_url())
         assert response.status_code == 200
-        assert [row["skill_name"] for row in response.json()] == ([config.skill_name] if is_staff else [])
-        if not is_staff:
-            assert self.client.patch(self._detail_url(str(config.id)), {"enabled": True}).status_code == 404
-            assert self.client.post(f"{self._detail_url(str(config.id))}run/").status_code == 404
-            assert self.client.delete(self._detail_url(str(config.id))).status_code == 404
-            config.refresh_from_db()
-            assert not config.enabled
+        assert [row["skill_name"] for row in response.json()] == [config.skill_name]
+        assert self.client.post(f"{self._detail_url(str(config.id))}run/").status_code == 400
 
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"

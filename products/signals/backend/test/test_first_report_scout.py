@@ -1,9 +1,15 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from products.signals.backend.constants import FIRST_REPORT_SCOUT
+from posthog.clickhouse.client.connection import Workload
+
+from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.first_report_scout import build_first_report_context, first_report_state
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
@@ -55,11 +61,36 @@ class TestFirstReportScout(BaseTest):
         with patch(
             "products.signals.backend.first_report_scout.execute_hogql_query",
             side_effect=lambda **kwargs: Mock(results=[[0, None]] if len(kwargs["query"].select) == 2 else [[1]]),
-        ):
+        ) as query:
             context = build_first_report_context(self.team, self.user)
         assert context.has_data()
         assert context.product_data["session_replay_fragments"].rows == 0
         assert context.product_data["session_replay_fragments"].has_rows is True
+        assert [call.kwargs["workload"] for call in query.call_args_list] == [
+            Workload.OFFLINE,
+            Workload.OFFLINE,
+            Workload.LOGS,
+            Workload.LOGS,
+            Workload.LOGS,
+            Workload.LOGS,
+        ]
+
+    @parameterized.expand(
+        [("in_progress", False, "running"), ("in_progress", True, "incomplete"), ("failed", False, "incomplete")]
+    )
+    def test_unfinished_runs_stop_showing_progress_after_the_deadline(
+        self, status: str, expired: bool, expected: str
+    ) -> None:
+        task = Task.objects.create(team=self.team, title="First investigation")
+        task_run = TaskRun.objects.create(team=self.team, task=task, status=status)
+        if expired:
+            TaskRun.objects.filter(id=task_run.id, team=self.team).update(
+                created_at=timezone.now() - timedelta(seconds=FIRST_REPORT_SCOUT_TIMEOUT_SECONDS + 301)
+            )
+        SignalScoutRun.objects.create(team=self.team, task_run=task_run, skill_name=FIRST_REPORT_SCOUT, skill_version=1)
+        result = first_report_state(self.team.id)
+        assert result["status"] == expected
+        assert result["task_run_id"] == str(task_run.id)
 
     def test_query_failure_is_unknown_instead_of_no_data(self) -> None:
         with patch(
@@ -102,6 +133,8 @@ class TestFirstReportScout(BaseTest):
         )
         result = first_report_state(self.team.id)
         assert result["status"] == expected
+        assert result["task_id"] == str(task.id)
+        assert result["task_run_id"] == str(task_run.id)
         if expected == "report_created":
             assert report is not None
             assert result["report_id"] == str(report.id)

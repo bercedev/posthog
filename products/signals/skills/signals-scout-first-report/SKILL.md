@@ -20,6 +20,8 @@ The harness supplies a project context snapshot with configured products, observ
 
 This scout has no future scheduled run. Do not spend this run building watchlists, maintaining the scout fleet, or waiting for a specialist. Other scouts' ownership boundaries do not restrict this investigation. Read a relevant existing report or note only to avoid duplicating work or contradicting a known explanation.
 
+The customer can watch this investigation live. Give brief, plain-language progress updates when you start checking a promising area, validate a candidate, or change direction. Describe what you are doing without presenting an unverified lead as a finding. Do not invent completion percentages or time estimates.
+
 ## Find promising leads
 
 Take a brief look across the populated products, then investigate the strongest few leads. Prioritize meaningful customer impact, evidence strength, and a concrete next action. Existing dashboards, saved funnels, active experiments, and business metrics are useful hints about what matters to the customer. If no saved analysis exists, use the event schema and observed behavior to form a hypothesis.

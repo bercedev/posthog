@@ -1248,7 +1248,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 if (
                     values.completed &&
                     !values.savedStateLoading &&
-                    (values.savedState?.jobs?.scout === 'pending' ||
+                    (values.savedState?.first_report?.status === 'pending' ||
                         values.savedState?.first_report?.status === 'running')
                 ) {
                     actions.loadSetup()

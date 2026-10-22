@@ -239,7 +239,7 @@ class TestInboxOnboarding(APIBaseTest):
                 (self.team.id, "recommendations"),
             }
         elif variant == "test-ui":
-            assert config.onboarding["jobs"] == {"scout": "pending"}
+            assert config.onboarding["jobs"] == {"scout": "pending", "recommendations": "skipped"}
             assert {call.args for call in launch.call_args_list} == {(self.team.id, "scout")}
         else:
             launch.assert_not_called()
@@ -328,13 +328,15 @@ class TestInboxOnboarding(APIBaseTest):
             (True, "scout", 200),
             (False, "source", 403),
             (True, "source", 200),
-            (False, "none", 200),
+            (False, "none", 403),
+            (True, "none", 200),
         ]
     )
     def test_child_completion_checks_parent_scout_access(
         self, parent_access: bool, selection: str, expected_status: int
     ) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        SignalTeamConfig.objects.create(team=child, onboarding={"variant": "test-ui"})
         SignalSourceConfig.objects.create(
             team=child, source_product="error_tracking", source_type="issue_created", enabled=True
         )
@@ -451,7 +453,7 @@ class TestInboxOnboarding(APIBaseTest):
             scout.refresh_from_db()
             assert scout.enabled
 
-    @parameterized.expand([("expose",), ("reconcile",)])
+    @parameterized.expand([("expose",), ("reconcile",), ("read",)])
     def test_child_scoped_credential_cannot_start_parent_reconciliation(self, action: str) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         raw = generate_random_token_personal()
@@ -459,15 +461,19 @@ class TestInboxOnboarding(APIBaseTest):
             label="onboarding",
             user=self.user,
             secure_value=hash_key_value(raw),
-            scopes=["task:write"],
+            scopes=["task:write", "signal_scout:read"],
             scoped_teams=[child.id],
         )
         self.client.logout()
-        response = self.client.post(
-            f"/api/projects/{child.id}/signals/onboarding/{action}/",
-            {"variant": "control"},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        response = (
+            self.client.get(f"/api/projects/{child.id}/signals/onboarding/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+            if action == "read"
+            else self.client.post(
+                f"/api/projects/{child.id}/signals/onboarding/{action}/",
+                {"variant": "control"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
         )
         assert response.status_code == 403, response.content
 
@@ -627,7 +633,8 @@ class TestInboxOnboarding(APIBaseTest):
 
 
 class TestInboxOnboardingActivation(BaseTest):
-    def test_no_scout_sandbox_starts_for_an_empty_project(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_no_scout_sandbox_starts_for_an_empty_project(self, first_probe_fails: bool) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         config = SignalTeamConfig.objects.create(
@@ -647,13 +654,22 @@ class TestInboxOnboardingActivation(BaseTest):
             patch(
                 "products.signals.backend.first_report_scout.execute_hogql_query",
                 side_effect=lambda **kwargs: MagicMock(results=[[0, None]] if len(kwargs["query"].select) == 2 else []),
-            ),
+            ) as probe,
             patch("products.signals.backend.onboarding_activation.sync_connect") as connect,
             patch(
                 "posthoganalytics.get_feature_flag_payload",
                 return_value={"enabled": True, "guaranteed_team_ids": [self.team.id]},
             ),
         ):
+            if first_probe_fails:
+                healthy_probe = probe.side_effect
+                probe.side_effect = RuntimeError("Query unavailable")
+                with self.assertRaisesRegex(RuntimeError, "data availability is unknown"):
+                    InboxOnboardingActivation(self.team.id).run("scout", final_attempt=False)
+                config.refresh_from_db()
+                assert config.onboarding is not None
+                assert config.onboarding["jobs"]["scout"] == "pending"
+                probe.side_effect = healthy_probe
             InboxOnboardingActivation(self.team.id).run("scout")
         connect.assert_not_called()
         config.refresh_from_db()

@@ -163,6 +163,14 @@ export const FirstReportStatusEnumApi = {
 } as const
 
 export interface FirstReportStateApi {
+    /** Scout run ID for inspecting the investigation through the scout API. */
+    scout_run_id?: string
+    /** Task ID for following the investigation's live activity. */
+    task_id?: string
+    /** Task run ID for following the investigation's live activity. */
+    task_run_id?: string
+    /** When the investigation's task run started. */
+    started_at?: string
     /** Progress of the first investigation.
      *
      * * `pending` - Pending
@@ -198,7 +206,7 @@ export const InboxOnboardingJobStatusEnumApi = {
 } as const
 
 export interface InboxOnboardingJobsApi {
-    /** Dispatch status of the first general scout run.
+    /** Dispatch status of the first-report scout run.
      *
      * * `pending` - Pending
      * * `started` - Started

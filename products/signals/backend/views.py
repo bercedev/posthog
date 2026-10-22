@@ -124,7 +124,6 @@ from products.signals.backend.billing import (
     report_pr_is_merged,
 )
 from products.signals.backend.briefing_reports import reports_for_person
-from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
 from products.signals.backend.facade.api import emit_signal
@@ -3471,12 +3470,7 @@ class SignalReportViewSet(
                     {
                         "id": report_id,
                         "source_products": signal_meta_map.get(report_id, empty).source_products,
-                        "scout_name": (
-                            signal_meta_map.get(report_id, empty).scout_name
-                            if request.user.is_staff
-                            or signal_meta_map.get(report_id, empty).scout_name not in SYSTEM_SCOUT_NAMES
-                            else None
-                        ),
+                        "scout_name": signal_meta_map.get(report_id, empty).scout_name,
                     }
                     for report_id in report_ids
                 ]

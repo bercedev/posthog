@@ -24,11 +24,11 @@ from products.signals.backend.facade.onboarding import (
     InboxOnboarding,
     InboxOnboardingValidationError,
     can_create_onboarding_scout,
+    onboarding_first_report_statuses,
     onboarding_priorities,
     onboarding_source_products,
     onboarding_source_types,
 )
-from products.signals.backend.first_report_scout_types import FirstReportStatus
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutSuggestionItemSerializer
 
@@ -100,7 +100,7 @@ class InboxOnboardingJobStatus(models.TextChoices):
 
 class InboxOnboardingJobsSerializer(serializers.Serializer):
     scout = serializers.ChoiceField(
-        choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of the first general scout run."
+        choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of the first-report scout run."
     )
     recommendations = serializers.ChoiceField(
         choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of personalized scout recommendations."
@@ -109,8 +109,18 @@ class InboxOnboardingJobsSerializer(serializers.Serializer):
 
 @extend_schema_serializer(many=False)
 class FirstReportStateSerializer(serializers.Serializer):
+    scout_run_id = serializers.UUIDField(
+        required=False, help_text="Scout run ID for inspecting the investigation through the scout API."
+    )
+    task_id = serializers.UUIDField(
+        required=False, help_text="Task ID for following the investigation's live activity."
+    )
+    task_run_id = serializers.UUIDField(
+        required=False, help_text="Task run ID for following the investigation's live activity."
+    )
+    started_at = serializers.DateTimeField(required=False, help_text="When the investigation's task run started.")
     status = serializers.ChoiceField(
-        choices=FirstReportStatus.choices, help_text="Progress of the first investigation."
+        choices=onboarding_first_report_statuses(), help_text="Progress of the first investigation."
     )
     report_id = serializers.UUIDField(
         required=False, help_text="The first useful report produced by the investigation."

@@ -23,11 +23,9 @@ from posthog.auth import (
     SessionAuthentication,
 )
 from posthog.models import Organization, Team
-from posthog.permissions import is_scout_sandbox_request
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.api import get_scout_trial_skill_override
-from products.signals.backend.facade.scout_visibility import system_scout_skill_names
 
 from ..models.skills import LLMSkill
 from .skill_serializers import LLMSkillSerializer, LLMSkillVersionSummarySerializer
@@ -61,11 +59,6 @@ MAX_SKILL_NAME_MATCH_CANDIDATES = 500
 # viewset's docstring through its MRO, so a docstring here becomes the published OpenAPI description
 # of every skill endpoint at once. The module docstring carries the description instead.
 class SkillAccessMixin(_SkillViewBase):
-    def _hidden_skill_names(self) -> frozenset[str]:
-        if self.request.user.is_staff or is_scout_sandbox_request(self.request):
-            return frozenset()
-        return system_scout_skill_names()
-
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
             request.successful_authenticator,
@@ -85,8 +78,6 @@ class SkillAccessMixin(_SkillViewBase):
         version_id: str | None = None,
     ) -> LLMSkill | None:
         # has_permission passes anyone with a grant on any one skill, so the loaded row is checked here.
-        if skill_name in self._hidden_skill_names():
-            return None
         skill = get_skill_by_name_from_db(self.team, skill_name, version, version_id)
         if skill is not None:
             self.check_object_permissions(request, skill)
@@ -142,7 +133,7 @@ class SkillAccessMixin(_SkillViewBase):
         """Every active skill row this caller may read. `list` and every by-name read share it, so
         a name the list returned can never be denied by a read as if it did not exist."""
         return self.user_access_control.filter_queryset_by_access_level(
-            get_active_skill_queryset(self.team).exclude(name__in=self._hidden_skill_names()), resource="llm_skill"
+            get_active_skill_queryset(self.team), resource="llm_skill"
         )
 
     def _skill_not_found_response(self, skill_name: str, version: int | None = None) -> Response:

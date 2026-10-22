@@ -24,7 +24,6 @@ from posthog.models.integration import Integration, is_supported_external_issue_
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
-from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
     SCOPE_CONFIG_KEYS,
@@ -1793,11 +1792,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
     def get_scout_name(self, obj: SignalReport) -> str | None:
         scout_names_map: dict[str, str] | None = self.context.get("scout_names_map")
         if scout_names_map is not None:
-            name = scout_names_map.get(str(obj.id))
-            request = self.context.get("request")
-            if name in SYSTEM_SCOUT_NAMES and not (request and request.user.is_staff):
-                return None
-            return name
+            return scout_names_map.get(str(obj.id))
         return None
 
     def _get_pull_requests(self, obj: SignalReport) -> list["ImplementationPr"]:
