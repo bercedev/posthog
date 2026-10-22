@@ -7,13 +7,13 @@ FIRST_REPORT_SUITE = OfflineEvalSuite.from_scorers(
     project_id=2,
     tags=("team:self-driving", "component:signals/first-report"),
     scorers={
-        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("d4bc0e40-0b84-4bb4-bfd9-11b6bc45a0b6")),
-        "scout_outcome": OfflineScorer(kind="boolean", version=UUID("e2b1e6e2-67ae-4835-9fa2-0e817e35f1de")),
-        "grounded_closeout": OfflineScorer(kind="boolean", version=UUID("748a5b7e-3538-463d-aeeb-a2d11cf564d9")),
-        "report_quality": OfflineScorer(kind="boolean", version=UUID("7f7ed676-7cf0-44fe-9536-87227d07cb3c")),
+        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1634a-9ee8-7933-80b1-9669b21a3923")),
+        "scout_outcome": OfflineScorer(kind="boolean", version=UUID("01a1634a-a2e5-7558-a408-0f22a9c70188")),
+        "grounded_closeout": OfflineScorer(kind="boolean", version=UUID("01a1634a-a675-72d2-bbe4-e763f4090b55")),
+        "report_quality": OfflineScorer(kind="boolean", version=UUID("01a1634a-aa66-791c-9b68-c19993e118e7")),
         "qualified_report_within_5_minutes": OfflineScorer(
-            kind="boolean", version=UUID("425b32c0-daf9-4b2f-bb2a-0eb65b389694")
+            kind="boolean", version=UUID("01a1634a-ae28-7775-87ba-662aa3b699d2")
         ),
-        "planted_issue_recall": OfflineScorer(kind="boolean", version=UUID("a467a9e5-37f0-4fa0-8366-dce1d5aa1287")),
+        "planted_issue_recall": OfflineScorer(kind="boolean", version=UUID("01a1634a-b1e9-7f04-9d7b-33e025fd9e69")),
     },
 )
