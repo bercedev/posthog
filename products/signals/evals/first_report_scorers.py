@@ -22,6 +22,7 @@ def evidence(output: dict[str, Any]) -> str:
             "oracle": output.get("seed", {}),
             "reports": visible_reports(output),
             "outcome": output.get("outcome"),
+            "closeout": output.get("last_message") or parser.get_final_agent_message(),
             "missing_data": output.get("missing_data", []),
             "checked_products": output.get("checked_products", []),
             "successful_tools": [call.model_dump() for call in parser.get_tool_calls() if not call.is_error],

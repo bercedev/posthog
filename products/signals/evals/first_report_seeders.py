@@ -6,8 +6,6 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import uuid4
 
-from django.apps import apps
-
 from pydantic import JsonValue
 
 from posthog.hogql import ast
@@ -22,12 +20,14 @@ from posthog.models.event.util import _json_dumps_for_clickhouse
 from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_BULK_SQL
 
 from products.demo.backend.facade.api import infer_taxonomy_for_team
-from products.posthog_ai.evals.error_tracking.seeders import (
-    _build_exception_properties,
-    _insert_fingerprint_issue_state,
+from products.error_tracking.backend.facade.testing import (
+    create_issue,
+    create_issue_fingerprint,
+    sync_issue_to_clickhouse,
 )
+from products.posthog_ai.evals.error_tracking.seeders import _build_exception_properties
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.api import all_queryable_table_names, soft_delete_tables
 
 from .first_report_fixture import (
     BASELINE_VERSION,
@@ -121,17 +121,13 @@ def seed_upload_case(
     anchor = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     events = upload_events(anchor, scenario=scenario)
     # The copied warehouse CSVs are immutable snapshots and would contradict this case's new event history.
-    DataWarehouseTable.objects.filter(team_id=team.id).delete()
+    soft_delete_tables(team.id, list(all_queryable_table_names(team.id).values()))
     issue_id: str | None = None
     if scenario == "regression":
-        issue_model = apps.get_model("error_tracking", "ErrorTrackingIssue")
-        fingerprint_model = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
-        issue = issue_model.objects.create(team_id=team.id, name="File upload request failure")
-        fingerprint = fingerprint_model.objects.create(
-            team_id=team.id, issue_id=issue.id, fingerprint=UPLOAD_FINGERPRINT
-        )
-        _insert_fingerprint_issue_state(issue=issue, fingerprint=fingerprint)
-        issue_id = str(issue.id)
+        issue_uuid = create_issue(team_id=team.id, name="File upload request failure")
+        create_issue_fingerprint(team_id=team.id, issue_id=issue_uuid, fingerprint=UPLOAD_FINGERPRINT)
+        sync_issue_to_clickhouse(team_id=team.id, issue_id=issue_uuid)
+        issue_id = str(issue_uuid)
         for event in events:
             if event.event == "$exception":
                 event.properties.update(

@@ -55,6 +55,46 @@ class TestFirstReportFixture(TestCase):
 class TestFirstReportScorers(TestCase):
     @parameterized.expand(
         [
+            ("Four signups are insufficient to establish a regression.", True),
+            ("This project has no recorded events.", True),
+            ("This project has no recorded events.", False),
+        ]
+    )
+    def test_closeout_judge_receives_final_explanation(self, summary: str, persisted_summary: bool) -> None:
+        output: dict[str, Any] = {
+            "exit_code": 0,
+            "outcome": "insufficient_data",
+            "checked_products": ["product_analytics"],
+            "missing_data": ["More mature signup cohorts"],
+            "seed": {"scenario": "sparse", "cohorts": [{"signups": 4}]},
+            "last_message": summary if persisted_summary else None,
+            "raw_log": json.dumps(
+                {
+                    "type": "notification",
+                    "notification": {
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "agent_message",
+                                "content": {
+                                    "type": "text",
+                                    "text": "Earlier progress" if persisted_summary else summary,
+                                },
+                            }
+                        },
+                    },
+                }
+            ),
+        }
+        prepared = GroundedCloseout()._prepare(output, {"scenario": "sparse"})
+        self.assertIsInstance(prepared, dict)
+        assert isinstance(prepared, dict)
+        payload = json.loads(prepared["output"])
+        self.assertEqual(payload["closeout"], summary)
+        self.assertEqual(payload["oracle"]["cohorts"], [{"signups": 4}])
+
+    @parameterized.expand(
+        [
             ("regression", "report_created", "ready", 1, True, 1.0),
             ("regression", "report_created", "candidate", 1, True, 0.0),
             ("regression", "report_created", "ready", 0, True, 0.0),
@@ -131,15 +171,34 @@ class TestScoutEvalCleanup(IsolatedAsyncioTestCase):
             (RuntimeError("Scout failed"), False),
             (asyncio.CancelledError(), False),
             (None, False),
+            (None, True, "connect"),
+            (None, True, "finish"),
         ]
     )
     async def test_scout_reclaims_sandbox_and_preserves_failure(
-        self, error: BaseException | None, cleanup_confirmed: bool
+        self, error: BaseException | None, cleanup_confirmed: bool, cancel_during: str | None = None
     ) -> None:
         task = SimpleNamespace(id="run", task_id="task", workflow_id="workflow")
         client = MagicMock()
         provider = MagicMock()
         result = SimpleNamespace(status="completed", run_id="scout", last_message=None)
+        cleanup_started = asyncio.Event()
+        release_cleanup = asyncio.Event()
+        workflow_finished = asyncio.Event()
+
+        async def connect() -> MagicMock:
+            if cancel_during == "connect":
+                cleanup_started.set()
+                await release_cleanup.wait()
+            return client
+
+        async def finish(*args: object, **kwargs: object) -> bool:
+            if cancel_during == "finish":
+                cleanup_started.set()
+                await release_cleanup.wait()
+            workflow_finished.set()
+            return cleanup_confirmed
+
         with (
             patch.object(scout_runner, "prepare_scout", return_value="Server inventory"),
             patch.object(scout_runner, "latest_scout_task", return_value=task),
@@ -151,8 +210,8 @@ class TestScoutEvalCleanup(IsolatedAsyncioTestCase):
                 return_value={"status": "insufficient_data", "missing_data": ["More cohorts"]},
             ),
             patch.object(scout_runner, "collect_reports", return_value=[]),
-            patch.object(scout_runner, "async_connect", AsyncMock(return_value=client)),
-            patch.object(scout_runner, "_finish_workflow", AsyncMock(return_value=cleanup_confirmed)),
+            patch.object(scout_runner, "async_connect", connect),
+            patch.object(scout_runner, "_finish_workflow", finish),
         ):
             invocation = scout_runner.run_first_report_scout(
                 SandboxedEvalCase(name="sparse", prompt="Run the scout"),
@@ -160,7 +219,15 @@ class TestScoutEvalCleanup(IsolatedAsyncioTestCase):
                 provider=provider,
                 on_cleanup=AsyncMock(side_effect=BrokenPipeError("Reporter disconnected")),
             )
-            if error is not None:
+            if cancel_during is not None:
+                running = asyncio.create_task(invocation)
+                await cleanup_started.wait()
+                provider.cleanup_case.assert_not_called()
+                running.cancel()
+                release_cleanup.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await running
+            elif error is not None:
                 with self.assertRaises(type(error)) as raised:
                     await invocation
                 self.assertIs(raised.exception, error)
@@ -170,4 +237,5 @@ class TestScoutEvalCleanup(IsolatedAsyncioTestCase):
             else:
                 completed = await invocation
                 self.assertEqual(completed.artifacts.model_dump()["missing_data"], ["More cohorts"])
+        self.assertTrue(workflow_finished.is_set())
         provider.cleanup_case.assert_called_once_with("task")

@@ -53,6 +53,7 @@ class EvalReport(BaseModel):
 
 class ScoutArtifacts(AgentArtifacts):
     reports: list[EvalReport] = Field(default_factory=list)
+    last_message: str | None = None
     outcome: str = "incomplete"
     missing_data: list[str] = Field(default_factory=list)
     checked_products: list[str] = Field(default_factory=list)
@@ -128,6 +129,43 @@ def first_progress_seconds(raw_log: str, started_at: datetime) -> float | None:
     return None
 
 
+async def finish_scout_eval(
+    team_id: int,
+    task_run: TaskRunDTO | None,
+    *,
+    successful: bool,
+    provider: SandboxProviderStrategy,
+    on_cleanup: Callable[[], Awaitable[None]] | None,
+) -> None:
+    task_run = task_run or await asyncio.to_thread(latest_scout_task, team_id)
+    await _report_cleanup(on_cleanup)
+    if task_run is None:
+        return
+    provider.register_task(str(task_run.task_id))
+    try:
+        client = await async_connect()
+        handle = client.get_workflow_handle(task_run.workflow_id)
+        if not await _finish_workflow(
+            handle,
+            status="completed" if successful else "failed",
+            reason=None if successful else "Scout eval interrupted",
+        ):
+            if successful:
+                raise WorkflowCleanupError("Scout eval workflow cleanup could not be confirmed")
+            logger.warning("Could not confirm interrupted scout eval workflow cleanup")
+    except Exception:
+        if successful:
+            raise
+        logger.warning("Could not finish interrupted scout eval workflow", exc_info=True)
+    finally:
+        try:
+            await asyncio.to_thread(provider.cleanup_case, str(task_run.task_id))
+        except Exception:
+            if successful:
+                raise
+            logger.warning("Could not sweep interrupted scout eval sandbox", exc_info=True)
+
+
 async def run_first_report_scout(
     case: SandboxedEvalCase,
     context: CustomPromptSandboxContext,
@@ -188,6 +226,7 @@ async def run_first_report_scout(
             {
                 **parsed.model_dump(),
                 "reports": reports,
+                "last_message": result.last_message,
                 "outcome": outcome.get("status", "incomplete"),
                 "missing_data": outcome.get("missing_data", []),
                 "checked_products": outcome.get("checked_products", []),
@@ -205,29 +244,16 @@ async def run_first_report_scout(
         if not run.done():
             run.cancel()
             await asyncio.gather(run, return_exceptions=True)
-        task_run = task_run or await asyncio.to_thread(latest_scout_task, context.team_id)
-        await _report_cleanup(on_cleanup)
-        if task_run is not None:
-            provider.register_task(str(task_run.task_id))
+        completion_task = asyncio.create_task(
+            finish_scout_eval(
+                context.team_id, task_run, successful=successful, provider=provider, on_cleanup=on_cleanup
+            )
+        )
+        try:
+            await asyncio.shield(completion_task)
+        except asyncio.CancelledError:
             try:
-                client = await async_connect()
-                handle = client.get_workflow_handle(task_run.workflow_id)
-                if not await _finish_workflow(
-                    handle,
-                    status="completed" if successful else "failed",
-                    reason=None if successful else "Scout eval interrupted",
-                ):
-                    if successful:
-                        raise WorkflowCleanupError("Scout eval workflow cleanup could not be confirmed")
-                    logger.warning("Could not confirm interrupted scout eval workflow cleanup")
+                await asyncio.shield(completion_task)
             except Exception:
-                if successful:
-                    raise
-                logger.warning("Could not finish interrupted scout eval workflow", exc_info=True)
-            finally:
-                try:
-                    await asyncio.to_thread(provider.cleanup_case, str(task_run.task_id))
-                except Exception:
-                    if successful:
-                        raise
-                    logger.warning("Could not sweep interrupted scout eval sandbox", exc_info=True)
+                logger.warning("Could not finish cancelled scout eval cleanup", exc_info=True)
+            raise

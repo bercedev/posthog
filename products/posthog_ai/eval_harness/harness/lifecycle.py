@@ -424,9 +424,9 @@ class SandboxedEvalHarness:
                     # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
                     # leave every case parked in QUEUED until the case's poll budget runs out.
                     TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
-                    # Only the eval product routes to the Go gateway. The worker mints each
+                    # Chat and scout evals retain their production product attribution. The worker mints each
                     # run a capped scoped token with this key, as it does in production.
-                    SANDBOX_AI_GATEWAY_PRODUCTS=EVAL_AI_PRODUCT,
+                    SANDBOX_AI_GATEWAY_PRODUCTS=f"{EVAL_AI_PRODUCT},signals_scout",
                     SANDBOX_AI_GATEWAY_MINT_KEY=self._ai_gateway_mint_key,
                     **self.provider.settings_overrides(),
                 )
