@@ -36,6 +36,7 @@ RUNNING_CONTEXT = HealthContext(
     flag_history=None,
     condition_set_traffic=None,
     pause_history=None,
+    primary_metric=None,
     excluded_variant_keys=frozenset(),
 )
 

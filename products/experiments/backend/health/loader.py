@@ -9,6 +9,7 @@ from products.experiments.backend.health.context import HealthContext, load_heal
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
 from products.experiments.backend.health.pause_history import load_pause_history
+from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
 
@@ -67,4 +68,5 @@ def _health_context(experiment: Experiment, reader_access: ExperimentHealthReade
         context,
         condition_set_traffic=traffic,
         pause_history=load_pause_history(experiment, reader_access=reader_access),
+        primary_metric=load_primary_metric(experiment),
     )
