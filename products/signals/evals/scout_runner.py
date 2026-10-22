@@ -118,7 +118,7 @@ def first_progress_seconds(raw_log: str, started_at: datetime) -> float | None:
             update = entry.get("notification", {}).get("params", {}).get("update", {})
             content = update.get("content", {})
             if (
-                update.get("sessionUpdate") == "agent_message_chunk"
+                update.get("sessionUpdate") in ("agent_message", "agent_message_chunk")
                 and content.get("type") == "text"
                 and content.get("text", "").strip()
             ):

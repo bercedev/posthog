@@ -42,7 +42,7 @@ from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
 from .offline_delivery import OfflineEvalDelivery
-from .ports import AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
+from .ports import AI_GATEWAY_PORT, AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .requirements import Infra, infra_union
@@ -428,6 +428,9 @@ class SandboxedEvalHarness:
                     # run a capped scoped token with this key, as it does in production.
                     SANDBOX_AI_GATEWAY_PRODUCTS=f"{EVAL_AI_PRODUCT},signals_scout",
                     SANDBOX_AI_GATEWAY_MINT_KEY=self._ai_gateway_mint_key,
+                    # Tool-side judges share the eval ledger with the sandboxed agent.
+                    AI_GATEWAY_URL=f"http://localhost:{AI_GATEWAY_PORT}/v1",
+                    AI_GATEWAY_API_KEY=self._ai_gateway_mint_key,
                     **self.provider.settings_overrides(),
                 )
 

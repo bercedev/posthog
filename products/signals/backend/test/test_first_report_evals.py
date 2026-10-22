@@ -148,7 +148,8 @@ class TestFirstReportScorers(TestCase):
 
 
 class TestScoutEvalCleanup(IsolatedAsyncioTestCase):
-    def test_progress_time_uses_first_text_chunk_not_prior_tool_call(self) -> None:
+    @parameterized.expand([("agent_message",), ("agent_message_chunk",)])
+    def test_progress_time_uses_first_text_not_prior_tool_call(self, message_kind: str) -> None:
         started = datetime(2026, 1, 1, tzinfo=UTC)
         log = "invalid JSON\n" + "\n".join(
             json.dumps(
@@ -161,7 +162,7 @@ class TestScoutEvalCleanup(IsolatedAsyncioTestCase):
                     },
                 }
             )
-            for seconds, kind in [(10, "tool_call"), (20, "agent_message_chunk"), (30, "agent_message_chunk")]
+            for seconds, kind in [(10, "tool_call"), (20, message_kind), (30, message_kind)]
         )
         self.assertEqual(scout_runner.first_progress_seconds(log, started), 20)
 
