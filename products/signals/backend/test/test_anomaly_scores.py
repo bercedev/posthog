@@ -27,6 +27,8 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring
 from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
+    buckets_to_score,
+    fetch_buckets,
     score_insight,
     score_series,
     trends_query_for,
@@ -35,7 +37,6 @@ from products.signals.backend.anomaly_scores.scoring import (
 NEW_YORK = ZoneInfo("America/New_York")
 DAY_SCORING = DEFAULT_PROFILE.intervals[IntervalType.DAY]
 ZSCORE_OR_KNN = IntervalScoring(
-    lookback="-365d",
     min_points=56,
     detector={
         "type": "ensemble",
@@ -114,6 +115,40 @@ class TestScoreSeries(SimpleTestCase):
 
         assert points[-1].bucket_start == buckets[last_completed]
 
+    @parameterized.expand(
+        [
+            ("first_score", None, DEFAULT_LIMITS.max_backfill_buckets),
+            ("revisit", 3, 3),
+        ]
+    )
+    def test_the_fetched_buckets_score_like_the_full_history(
+        self, _name: str, scored_days_ago: int | None, to_score: int
+    ) -> None:
+        values = list(np.random.default_rng(1).normal(100, 20, size=365))
+        values[-2] = 400.0
+        buckets = _buckets(datetime(2025, 10, 1, tzinfo=UTC), IntervalType.DAY, 365)
+        now = buckets[-1] + timedelta(days=1, hours=1)
+        after = None if scored_days_ago is None else buckets[-1 - scored_days_ago]
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+
+        assert buckets_to_score(IntervalType.DAY, now=now, after=after, timezone=ZoneInfo("UTC")) == to_score
+        fetched = fetch_buckets(query, DAY_SCORING, to_score)
+
+        def score(start: int) -> list[float | None]:
+            points = score_series(
+                values[start:],
+                buckets[start:],
+                scoring=DAY_SCORING,
+                interval=IntervalType.DAY,
+                now=now,
+                after=after,
+            )
+            return [point.score for point in points]
+
+        assert fetched < 100
+        assert score(-fetched) == score(0)
+        assert None not in score(-fetched)
+
     def test_warm_up_points_have_no_score_and_no_flag(self) -> None:
         buckets = _buckets(datetime(2026, 1, 1, tzinfo=UTC), IntervalType.DAY, 10)
 
@@ -140,10 +175,8 @@ def _result(order: int, label: str) -> dict[str, Any]:
 
 class TestScoreInsight(SimpleTestCase):
     def _keys(self, insight: Insight, results: list[dict[str, Any]]) -> dict[str, str]:
-        with patch(
-            "products.signals.backend.anomaly_scores.scoring.calculate_for_query_based_insight",
-            return_value=MagicMock(result=results),
-        ):
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=results)
             scores = score_insight(insight, Team(timezone="UTC"), now=datetime(2026, 1, 10, tzinfo=UTC))
         return {series.label: series.series_key for series in scores.series}
 
