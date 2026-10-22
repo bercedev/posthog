@@ -14,6 +14,14 @@ const smallFormat = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 2
 const defaultFormat = (value: number): string =>
     (value !== 0 && Math.abs(value) < 1 ? smallFormat : wholeFormat).format(value)
 
+export type StoryNavigationSource = 'marker' | 'step' | 'summary_list' | 'next' | 'back'
+
+export interface StoryPageChange {
+    index: number
+    fromIndex: number
+    source: StoryNavigationSource
+}
+
 export interface InsightStoryViewProps {
     data: InsightStoryData
     /** Draws the chart with the overlay as a child, so the overlay can read the chart's scales. */
@@ -21,7 +29,7 @@ export interface InsightStoryViewProps {
     openLink: (url: string) => void
     title?: string | null
     formatValue?: (value: number) => string
-    onPageChange?: (index: number) => void
+    onPageChange?: (change: StoryPageChange) => void
 }
 
 function hasChapter(page: StoryPage): page is StoryPage & { chapter: StoryChapter } {
@@ -57,10 +65,13 @@ export function InsightStoryView({
     const active = pages[activeIndex] ?? pages[0]!
     const hasNext = activeIndex + 1 < pages.length
 
-    const select = (index: number): void => {
-        setActiveIndex(index)
+    const select = (index: number, source: StoryNavigationSource): void => {
         setPreviewIndex(null)
-        onPageChange?.(index)
+        if (index === activeIndex) {
+            return
+        }
+        setActiveIndex(index)
+        onPageChange?.({ index, fromIndex: activeIndex, source })
     }
 
     const overlay = (
@@ -69,7 +80,7 @@ export function InsightStoryView({
             pages={pages}
             highlightedIndex={previewIndex ?? activeIndex}
             activeIndex={activeIndex}
-            onSelect={select}
+            onSelect={(index) => select(index, 'marker')}
         />
     )
 
@@ -99,7 +110,7 @@ export function InsightStoryView({
                                     pages={pages}
                                     seriesNote={seriesNoteOf(data)}
                                     warnings={warningMessages(data.warnings)}
-                                    onSelect={select}
+                                    onSelect={(index) => select(index, 'summary_list')}
                                     onPreview={setPreviewIndex}
                                 />
                             )}
@@ -108,7 +119,7 @@ export function InsightStoryView({
                             <StorySteps
                                 pages={pages}
                                 activeIndex={activeIndex}
-                                onSelect={select}
+                                onSelect={(index) => select(index, 'step')}
                                 onPreview={setPreviewIndex}
                             />
                             <div className="flex shrink-0 gap-1">
@@ -116,7 +127,7 @@ export function InsightStoryView({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => select(activeIndex - 1)}
+                                        onClick={() => select(activeIndex - 1, 'back')}
                                         data-attr="insight-story-back"
                                     >
                                         Back
@@ -126,7 +137,7 @@ export function InsightStoryView({
                                     <Button
                                         variant="primary"
                                         size="sm"
-                                        onClick={() => select(activeIndex + 1)}
+                                        onClick={() => select(activeIndex + 1, 'next')}
                                         data-attr="insight-story-next"
                                     >
                                         Next

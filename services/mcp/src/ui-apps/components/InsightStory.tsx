@@ -58,10 +58,12 @@ export function InsightStory({ data, openLink }: InsightStoryProps): ReactElemen
                     )}
                     openLink={openLink}
                     formatValue={formatValue}
-                    onPageChange={(index) =>
+                    onPageChange={({ index, fromIndex, source }) =>
                         capture('mcp_ui_app_insight_story_page_viewed', {
                             page_index: index,
+                            from_page_index: fromIndex,
                             page_count: data.chapters.length + 1,
+                            source,
                         })
                     }
                 />
