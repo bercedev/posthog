@@ -28,6 +28,7 @@ from products.signals.backend.facade.onboarding import (
     onboarding_source_products,
     onboarding_source_types,
 )
+from products.signals.backend.first_report_scout_types import FirstReportStatus
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutSuggestionItemSerializer
 
@@ -107,7 +108,29 @@ class InboxOnboardingJobsSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
+class FirstReportStateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=FirstReportStatus.choices, help_text="Progress of the first investigation."
+    )
+    report_id = serializers.UUIDField(
+        required=False, help_text="The first useful report produced by the investigation."
+    )
+    checked_products = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Products checked during the investigation."
+    )
+    missing_data = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Data or history needed for a reliable finding."
+    )
+
+
+@extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    first_report_notification_email = serializers.EmailField(
+        required=False,
+        allow_null=True,
+        help_text="The current user's email when enrolled for a first-report notification.",
+    )
+    first_report = FirstReportStateSerializer(required=False, allow_null=True, help_text="First investigation outcome.")
     jobs = InboxOnboardingJobsSerializer(required=False, help_text="Background work started by quick activation.")
     draft = InboxOnboardingDraftSerializer(allow_null=True, help_text="Saved setup choices, without activating them.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When verified setup completed.")

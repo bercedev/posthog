@@ -151,7 +151,7 @@ class SkillTransferActionsMixin(SkillAccessMixin):
         # Same object-level filter the list endpoint applies, so the bundle never carries a skill the
         # list would hide from this user.
         readable_skills = self.user_access_control.filter_queryset_by_access_level(
-            LLMSkill.objects.filter(team=self.team), resource="llm_skill"
+            LLMSkill.objects.filter(team=self.team).exclude(name__in=self._hidden_skill_names()), resource="llm_skill"
         )
         bundle = build_skill_bundle(
             self.team,

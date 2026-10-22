@@ -236,7 +236,13 @@ On re-promotion:
 - **Auto-start is deduplicated per report** by a legacy `SignalReportTask` implementation link (alongside the protected `task_run` log), checked inside the report-row `select_for_update`
 - **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
 
-#### First report email
+#### First report onboarding and email
+
+Guided and quick activation dispatch a one-time `signals-scout-first-report` investigation when the project has product or warehouse data. The scout receives a bounded project inventory, recent event volumes, native-product data counts, and accessible warehouse table metadata before investigating. It searches across products, including product-analytics anomalies, and authors at most one report through the direct report channel. A project-scoped report idempotency key enforces that limit independently of agent instructions.
+
+The first-report scout is excluded from scheduled registration, suggestions, and non-staff scout and skill APIs. Staff can inspect its configuration and runs. Customer-facing reports remain visible. Its structured close-out distinguishes insufficient data, no actionable finding, and an incomplete investigation. Onboarding exposes that outcome without exposing the scout itself. Missing or failed data probes remain unknown rather than being presented as an empty project.
+
+The first-report email can also select a first-report-scout finding that needs a human decision. The onboarding UI promises an email only to the enrolled activating user when the email feature and sender configuration are enabled.
 
 Guided and quick onboarding create a `SignalFirstReportNotification` in the activation transaction, preserving the activating user for that environment. The first report that becomes `ready`, immediately actionable, and not already addressed after activation triggers a transactional email to that user's email address, tracked against their distinct ID. Control onboarding does not identify an activator and does not enroll a recipient.
 

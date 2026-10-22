@@ -72,6 +72,7 @@ from posthog.user_permissions import UserPermissions
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import ReviewerState
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -81,7 +82,11 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
-from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
+from products.signals.backend.presentation.scout_permissions import (
+    ScoutCanonicalTeamAccessPermission,
+    SystemScoutAccessPermission,
+    can_read_system_scouts,
+)
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
@@ -611,7 +616,12 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     serializer_class = SignalScoutRunSummarySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        ScoutCanonicalTeamAccessPermission,
+        SystemScoutAccessPermission,
+    ]
     scope_object = "signal_scout"
     # `.unscoped()` bypasses the fail-closed TeamScopedManager; this class-attribute queryset
     # evaluates at module-load time (before any request → no team context). All read paths
@@ -712,6 +722,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_version=skill_version,
             limit=limit,
             exclude_skill_name=saved.context.skill_name if saved is not None else None,
+            exclude_skill_names=() if can_read_system_scouts(request) else SYSTEM_SCOUT_NAMES,
         )
         if saved is not None:
             rows = saved.recent_runs(
@@ -789,6 +800,13 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             rows.sort(key=lambda row: row.created_at, reverse=True)
             return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        if not can_read_system_scouts(request):
+            run_ids = list(
+                SignalScoutRun.objects.for_team(_canonical_team_id(self))
+                .filter(id__in=run_ids)
+                .exclude(skill_name__in=SYSTEM_SCOUT_NAMES)
+                .values_list("id", flat=True)
+            )
         # The inbox polls this every minute. A browser revalidates a `no-cache` body with
         # If-None-Match by itself, so an unchanged fleet costs the narrow version read, not hydration.
         etag = f'"{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
@@ -833,7 +851,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def findings_summary(self, request: Request, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
         window_hours = validated.get("window_hours") or DEFAULT_FINDINGS_WINDOW_HOURS
-        summary = fleet_findings_summary(team_id=_canonical_team_id(self), window_hours=window_hours)
+        summary = fleet_findings_summary(
+            team_id=_canonical_team_id(self),
+            window_hours=window_hours,
+            exclude_skill_names=() if can_read_system_scouts(request) else SYSTEM_SCOUT_NAMES,
+        )
         return Response(FleetFindingsSummarySerializer(summary.as_dict()).data)
 
     @extend_schema(
@@ -940,6 +962,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = validated.get("limit") or DEFAULT_RECENT_EMISSIONS_LIMIT
 
         qs = SignalScoutEmission.objects.filter(team_id=team_id)
+        if not can_read_system_scouts(request):
+            qs = qs.exclude(scout_run__skill_name__in=SYSTEM_SCOUT_NAMES)
         if validated.get("date_from"):
             qs = qs.filter(emitted_at__gte=validated["date_from"])
         if validated.get("date_to"):
@@ -2001,7 +2025,12 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     serializer_class = ScratchpadEntrySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        ScoutCanonicalTeamAccessPermission,
+        SystemScoutAccessPermission,
+    ]
     scope_object = "signal_scout"
     # `list` returns a raw newest-first array (capped at limit=1000 by the query serializer),
     # not a paginated wrapper. See SignalScoutRunViewSet for the same rationale.
@@ -2062,6 +2091,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 content_max_chars=content_max_chars,
                 include_expired=bool(validated.get("include_expired", False)),
             )
+        if not can_read_system_scouts(request):
+            rows = [row for row in rows if row.created_by_skill not in SYSTEM_SCOUT_NAMES]
         return Response(ScratchpadEntrySerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
@@ -2186,7 +2217,12 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     serializer_class = ScoutNoteSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        ScoutCanonicalTeamAccessPermission,
+        SystemScoutAccessPermission,
+    ]
     scope_object = "signal_scout"
     # `destroy` resolves the note through `_parse_run_id_or_404`, which reads the `id` kwarg.
     lookup_field = "id"
@@ -2261,6 +2297,8 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 else SignalScoutNote.derived_origins()
             ),
         )
+        if not can_read_system_scouts(request):
+            rows = [row for row in rows if row.skill_name not in SYSTEM_SCOUT_NAMES]
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
@@ -2379,7 +2417,12 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     serializer_class = ProjectProfileSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        ScoutCanonicalTeamAccessPermission,
+        SystemScoutAccessPermission,
+    ]
     scope_object = "signal_scout"
     # `.unscoped()` — see `SignalScoutRunViewSet` for the same module-load reasoning.
     # The `current` action filters by team_id explicitly via `get_project_profile`.
@@ -2487,7 +2530,12 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     serializer_class = ScoutMetadataSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        ScoutCanonicalTeamAccessPermission,
+        SystemScoutAccessPermission,
+    ]
     scope_object = "signal_scout"
     # No model backs this endpoint — metadata is computed from the flag payload. A real queryset is
     # still required to satisfy the team/org viewset mixin; the `current` action never reads it.
@@ -2580,7 +2628,12 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
 
     serializer_class = ScoutMemberSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        ScoutCanonicalTeamAccessPermission,
+        SystemScoutAccessPermission,
+    ]
     scope_object = "signal_scout_internal"
     # No team-scoped model backs this endpoint — members are resolved from project access. A queryset is
     # still required to satisfy the team/org viewset mixin; `list` never reads it. Mirrors
@@ -3412,7 +3465,12 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
     # Every action resolves `_canonical_team_id`, so the rows read and written belong to the
     # parent project even on a child-environment URL — and config writes drive spend and the
     # sandbox network posture, so authorization must anchor to the data-owning team.
-    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        ScoutCanonicalTeamAccessPermission,
+        SystemScoutAccessPermission,
+    ]
     scope_object = "signal_scout"
     queryset = SignalScoutConfig.objects.unscoped()
     lookup_field = "id"
@@ -3502,6 +3560,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         # held-back team across the whole config API. Storage is untouched; the row reappears if
         # the team is later un-withheld.
         withheld = withheld_skills_for_team(team_id)
+        if not can_read_system_scouts(request):
+            withheld |= SYSTEM_SCOUT_NAMES
         queryset = (
             SignalScoutConfig.objects.unscoped()
             .filter(team_id=team_id)
@@ -3758,6 +3818,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         if config is None:
             raise exceptions.NotFound()
         skill_name = config.skill_name
+        if skill_name in SYSTEM_SCOUT_NAMES:
+            raise exceptions.ValidationError("This scout runs once during onboarding.")
         # A withheld scout is invisible across the whole config API (it's excluded from list), so a
         # run request for one is a 404 here too — and the runner would refuse it anyway. Resolved
         # against the canonical team, matching `list`/`sync`.
@@ -3963,6 +4025,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         # a second fleet.
         team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
         withheld = materialize_scout_fleet(team, surface=request.validated_query_data.get("surface"))
+        if not can_read_system_scouts(request):
+            withheld |= SYSTEM_SCOUT_NAMES
         # Exclude held-back scouts from the materialized fleet response too: a scout that was
         # previously seeded and later withheld still has a row, and surfacing it here would
         # advertise an unreleased scout despite the holdback. Storage is left untouched (no

@@ -43,6 +43,11 @@ def scout_trial_visibility_q(user_id: int | None) -> Q:
     return ~Task.scout_experiment_q() | _creator_q(user_id)
 
 
+def _system_scout_q(*, relation: str = "") -> Q:
+    prefix = f"{relation}__" if relation else ""
+    return Q(**{f"{prefix}origin_product": Task.OriginProduct.SIGNALS_SCOUT, f"{prefix}origin_key": "first-report"})
+
+
 def task_control_q(user_id: int | None) -> Q:
     """Tasks the user may mutate or drive.
 
@@ -56,6 +61,7 @@ def task_control_q(user_id: int | None) -> Q:
     return (
         (channeled_q | legacy_q)
         & scout_trial_visibility_q(user_id)
+        & ~_system_scout_q()
         & ~Q(origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
     )
 
@@ -73,6 +79,7 @@ def task_visibility_q(user_id: int | None) -> Q:
     return (
         (channeled_q | legacy_q)
         & scout_trial_visibility_q(user_id)
+        & ~_system_scout_q()
         & ~Q(origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
     )
 
@@ -88,4 +95,9 @@ def task_run_visibility_q(user_id: int | None) -> Q:
     trial_visibility = ~Task.scout_experiment_q(relation="task")
     if user_id is not None:
         trial_visibility |= Q(task__created_by_id=user_id)
-    return (channeled_q | legacy_q) & trial_visibility & ~Q(task__origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
+    return (
+        (channeled_q | legacy_q)
+        & trial_visibility
+        & ~_system_scout_q(relation="task")
+        & ~Q(task__origin_product__in=PRODUCT_PRIVATE_ORIGIN_PRODUCTS)
+    )

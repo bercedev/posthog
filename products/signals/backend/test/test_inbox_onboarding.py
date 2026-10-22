@@ -238,6 +238,9 @@ class TestInboxOnboarding(APIBaseTest):
                 (self.team.id, "scout"),
                 (self.team.id, "recommendations"),
             }
+        elif variant == "test-ui":
+            assert config.onboarding["jobs"] == {"scout": "pending"}
+            assert {call.args for call in launch.call_args_list} == {(self.team.id, "scout")}
         else:
             launch.assert_not_called()
         assert config.autostart_enabled is automatic_implementation
@@ -624,6 +627,44 @@ class TestInboxOnboarding(APIBaseTest):
 
 
 class TestInboxOnboardingActivation(BaseTest):
+    def test_no_scout_sandbox_starts_for_an_empty_project(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        config = SignalTeamConfig.objects.create(
+            team=self.team,
+            onboarding={
+                "variant": "test-ui",
+                "completed_at": timezone.now().isoformat(),
+                "activated_by": self.user.pk,
+                "jobs": {"scout": "pending"},
+            },
+        )
+        with (
+            patch(
+                "products.signals.backend.scout_harness.profile.builders.execute_hogql_query",
+                return_value=MagicMock(results=[]),
+            ),
+            patch(
+                "products.signals.backend.first_report_scout.execute_hogql_query",
+                side_effect=lambda **kwargs: MagicMock(results=[[0, None]] if len(kwargs["query"].select) == 2 else []),
+            ),
+            patch("products.signals.backend.onboarding_activation.sync_connect") as connect,
+            patch(
+                "posthoganalytics.get_feature_flag_payload",
+                return_value={"enabled": True, "guaranteed_team_ids": [self.team.id]},
+            ),
+        ):
+            InboxOnboardingActivation(self.team.id).run("scout")
+        connect.assert_not_called()
+        config.refresh_from_db()
+        assert config.onboarding is not None
+        assert config.onboarding["first_report"]["status"] == "no_data"
+        assert (
+            not SignalScoutConfig.objects.for_team(self.team.id)
+            .filter(skill_name="signals-scout-first-report")
+            .exists()
+        )
+
     @parameterized.expand([("scout", 0), ("scout", 5), ("recommendations", 0), ("recommendations", 5)])
     def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(self, job: str, retry_count: int) -> None:
         self.organization.is_ai_data_processing_approved = True
@@ -642,6 +683,14 @@ class TestInboxOnboardingActivation(BaseTest):
         client.start_workflow = AsyncMock()
         with (
             patch("products.signals.backend.onboarding_activation.sync_connect", return_value=client),
+            patch(
+                "products.signals.backend.scout_harness.profile.builders.execute_hogql_query",
+                return_value=MagicMock(results=[["$pageview", 100, 10, 20, 5, timezone.now(), timezone.now()]]),
+            ),
+            patch(
+                "products.signals.backend.first_report_scout.execute_hogql_query",
+                side_effect=lambda **kwargs: MagicMock(results=[[0, None]] if len(kwargs["query"].select) == 2 else []),
+            ),
             patch("products.signals.backend.onboarding_activation.ph_scoped_capture") as capture,
             patch("products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=True),
             self.captureOnCommitCallbacks(execute=True),

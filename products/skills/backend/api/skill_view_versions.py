@@ -92,7 +92,12 @@ class SkillVersionActionsMixin(SkillAccessMixin):
         )
 
     def _redirect_to_name(self, request: Request, skill_name: str) -> Response | None:
-        skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
+        skill_by_id = (
+            get_active_skill_queryset(self.team)
+            .exclude(name__in=self._hidden_skill_names())
+            .filter(id=skill_name)
+            .first()
+        )
         if skill_by_id is None:
             return None
         self.check_object_permissions(request, skill_by_id)

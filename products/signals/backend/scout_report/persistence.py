@@ -64,6 +64,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.constants import FIRST_REPORT_SCOUT
 from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -241,6 +242,8 @@ def create_scout_report(
     # `_assert_team_owns_run`; this guards a future direct caller that bypasses it (mirrors `emit`).
     if run is not None and run.team_id != team_id:
         raise RuntimeError(f"create_scout_report: team {team_id} does not own run {run.id} (team {run.team_id})")
+    if run is not None and run.skill_name == FIRST_REPORT_SCOUT:
+        idempotency_key = f"first-report:{team_id}"
 
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
@@ -284,7 +287,8 @@ def create_scout_report(
             # and activity log can surface the scout's transcript — without it the run is only visible as
             # an anonymous "by agent" byline on the rows above. Written in-txn for the same no-divergence
             # reason as the note; skipped when the run isn't bridged to a resolvable task.
-            if run is not None and attribution.task_id is not None:
+            # The onboarding scout's run is staff-only; its report is customer-facing.
+            if run is not None and attribution.task_id is not None and run.skill_name != FIRST_REPORT_SCOUT:
                 SignalReportArtefact.add_log(
                     team_id=team_id,
                     report_id=report_id,
@@ -378,7 +382,7 @@ def create_scout_report(
         # Stamp the authoring scout onto every backing signal so the inbox can render "Scout · <name>"
         # on the evidence card + header, matching the emit_signal path. `run` is the single place the
         # skill_name is available (bound signals otherwise ship empty extra, see `_build_signals`).
-        skill_name = run.skill_name if run is not None else None
+        skill_name = run.skill_name if run is not None and run.skill_name != FIRST_REPORT_SCOUT else None
         for signal, document_id in zip(signals, document_ids):
             _emit_bound_signal(
                 team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
@@ -1560,6 +1564,8 @@ def scout_task_run_content(run: SignalScoutRun, task_id: str) -> TaskRunArtefact
 
 
 def scout_report_provenance(run: SignalScoutRun | None) -> NoteArtefact:
+    if run is not None and run.skill_name == FIRST_REPORT_SCOUT:
+        return NoteArtefact(note="Authored by the first Self-driving investigation.", author="signals_scout")
     return NoteArtefact(
         note=(
             f"Authored directly by the `{run.skill_name}` Signals scout via emit_report."
