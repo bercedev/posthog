@@ -1,15 +1,17 @@
 /* eslint-disable react/forbid-dom-props -- pixel positions from the chart's scales */
-import { type ReactElement, type SyntheticEvent } from 'react'
+import { type ReactElement } from 'react'
 
 import { useChartLayout } from '@posthog/quill-charts'
 
+import { type MarkerObstacles, placeMarkers, type Point } from './storyMarkerPlacement'
 import type { StoryPage } from './storyPages'
 
 // The brand orange in both themes, so the highlight never reads as one of the chart's series.
 const HIGHLIGHT_COLOR = 'var(--primary-light)'
 const MARKER_SIZE = 20
 const MARKER_GAP = 12
-const TAIL_WIDTH = 8
+const TAIL_SPREAD = 0.45
+const TIP_CLEARANCE = 3
 const FEATHER = 28
 const MIN_REACH = 22
 const BAR_PADDING = 4
@@ -18,9 +20,6 @@ interface Band {
     left: number
     right: number
 }
-
-// The chart runs its own hover and click on this layer, and a marker must not start them.
-const stopPropagation = (event: SyntheticEvent): void => event.stopPropagation()
 
 export interface StoryChartOverlayProps {
     seriesKey: string
@@ -81,34 +80,58 @@ export function StoryChartOverlay({
           ]
         : []
 
-    const yScale = (chartSeries.yAxisId && scales.yAxes?.[chartSeries.yAxisId]?.scale) || scales.y
-    const markers = pages.flatMap((page, index) => {
+    const yScaleOf = (target: typeof chartSeries): ((value: number) => number) =>
+        (target.yAxisId && scales.yAxes?.[target.yAxisId]?.scale) || scales.y
+    const yScale = yScaleOf(chartSeries)
+    const anchors = pages.flatMap((page, index) => {
         const x = page.anchor === null ? null : xAt(page.anchor)
         if (page.anchor === null || x === null || x < plotLeft || x > plotRight) {
             return []
         }
         const y = yScale(resolvePositionValue(chartSeries, page.anchor))
-        if (!isFinite(y)) {
-            return []
-        }
-        // A point at the top of the plot has no room above it, so its marker goes below.
-        const above = y - MARKER_SIZE - MARKER_GAP
-        const below = above < plotTop
-        return [{ page, index, x, y, top: below ? y + MARKER_GAP : above, left: x, below }]
+        return isFinite(y) ? [{ page, index, x, y }] : []
     })
-    // Badges on neighbouring points move apart sideways, so each stays over its own point.
-    for (const marker of markers) {
-        for (const other of markers) {
-            if (other === marker || Math.abs(other.top - marker.top) >= MARKER_SIZE) {
-                continue
-            }
-            const overlap = MARKER_SIZE + 2 - Math.abs(other.left - marker.left)
-            if (overlap > 0) {
-                const direction = marker.x >= other.x ? 1 : -1
-                marker.left += (direction * overlap) / 2
-                other.left -= (direction * overlap) / 2
-            }
-        }
+
+    const drawn = series.filter((candidate) => !candidate.visibility?.excluded)
+    const pointsOf = (target: typeof chartSeries): Point[] =>
+        labels.flatMap((label, index) => {
+            const x = scales.x(label, target.key)
+            const y = yScaleOf(target)(resolvePositionValue(target, index))
+            return x != null && isFinite(x) && isFinite(y) ? [{ x, y }] : []
+        })
+    const zero = yScale(0)
+    const baseline = isFinite(zero) ? zero : plotTop + plotHeight
+    const obstacles: MarkerObstacles =
+        barWidth !== undefined
+            ? {
+                  lines: [],
+                  bars: drawn.flatMap((target) =>
+                      pointsOf(target).map(({ x, y }) => ({
+                          left: x - barWidth / 2,
+                          right: x + barWidth / 2,
+                          top: Math.min(y, baseline),
+                          bottom: Math.max(y, baseline),
+                      }))
+                  ),
+              }
+            : { lines: drawn.map(pointsOf), bars: [] }
+    const centers = placeMarkers(anchors, obstacles, {
+        radius: MARKER_SIZE / 2,
+        distance: MARKER_SIZE / 2 + MARKER_GAP,
+        bounds: { left: plotLeft, top: 0, right: plotRight, bottom: plotTop + plotHeight },
+    })
+    const markers = anchors.map((anchor, index) => ({ ...anchor, center: centers[index]! }))
+
+    const tailOf = ({ x, y, center }: (typeof markers)[number]): string => {
+        // The base starts under the badge, so the tail grows out of its border in the same colour.
+        const angle = Math.atan2(y - center.y, x - center.x)
+        const inset = MARKER_SIZE / 2 - 1.5
+        const points: [number, number][] = [
+            [center.x + Math.cos(angle - TAIL_SPREAD) * inset, center.y + Math.sin(angle - TAIL_SPREAD) * inset],
+            [center.x + Math.cos(angle + TAIL_SPREAD) * inset, center.y + Math.sin(angle + TAIL_SPREAD) * inset],
+            [x - Math.cos(angle) * TIP_CLEARANCE, y - Math.sin(angle) * TIP_CLEARANCE],
+        ]
+        return points.map(([px, py]) => `${px - plotLeft},${py - plotTop}`).join(' ')
     }
 
     return (
@@ -149,24 +172,15 @@ export function StoryChartOverlay({
                 style={{ left: plotLeft, top: plotTop, width: plotWidth, height: plotHeight }}
                 aria-hidden
             >
-                {markers.map(({ index, x, y, top, left, below }) => {
-                    const base = below ? top + 1 : top + MARKER_SIZE - 1
-                    const tip = below ? y + 3 : y - 3
-                    const points: [number, number][] = [
-                        [left - TAIL_WIDTH / 2, base],
-                        [left + TAIL_WIDTH / 2, base],
-                        [x, tip],
-                    ]
-                    return (
-                        <polygon
-                            key={index}
-                            points={points.map(([px, py]) => `${px - plotLeft},${py - plotTop}`).join(' ')}
-                            fill={index === activeIndex ? 'var(--foreground)' : 'var(--muted-foreground)'}
-                        />
-                    )
-                })}
+                {markers.map((marker) => (
+                    <polygon
+                        key={marker.index}
+                        points={tailOf(marker)}
+                        fill={marker.index === activeIndex ? 'var(--foreground)' : 'var(--muted-foreground)'}
+                    />
+                ))}
             </svg>
-            {markers.map(({ page, index, top, left }) => {
+            {markers.map(({ page, index, center }) => {
                 const active = index === activeIndex
                 return (
                     <button
@@ -179,15 +193,18 @@ export function StoryChartOverlay({
                         className={`pointer-events-auto absolute flex cursor-pointer items-center justify-center rounded-full border text-xs font-medium tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-ring ${
                             active
                                 ? 'border-foreground bg-foreground text-background'
-                                : 'border-muted-foreground bg-card text-foreground shadow-sm hover:border-foreground'
+                                : 'border-muted-foreground bg-card text-foreground hover:border-foreground'
                         }`}
-                        style={{ left: left - MARKER_SIZE / 2, top, width: MARKER_SIZE, height: MARKER_SIZE }}
+                        style={{
+                            left: center.x - MARKER_SIZE / 2,
+                            top: center.y - MARKER_SIZE / 2,
+                            width: MARKER_SIZE,
+                            height: MARKER_SIZE,
+                        }}
                         onClick={(event) => {
                             event.stopPropagation()
                             onSelect(index)
                         }}
-                        onMouseDown={stopPropagation}
-                        onMouseMove={stopPropagation}
                     >
                         {index + 1}
                     </button>
