@@ -25,6 +25,7 @@ import type {
     IntegrationAssigneesResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
+    IntegrationsDomainConnectCheckRetrieveParams,
     IntegrationsEmailStatusRetrieveParams,
     IntegrationsGithubAssigneesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
@@ -874,15 +875,31 @@ export const integrationsDomainConnectApplyUrlCreate = async (
     })
 }
 
-export const getIntegrationsDomainConnectCheckRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/domain-connect/check/`
+export const getIntegrationsDomainConnectCheckRetrieveUrl = (
+    projectId: string,
+    params: IntegrationsDomainConnectCheckRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/domain-connect/check/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/domain-connect/check/`
 }
 
 export const integrationsDomainConnectCheckRetrieve = async (
     projectId: string,
+    params: IntegrationsDomainConnectCheckRetrieveParams,
     options?: RequestInit
 ): Promise<EmailDomainConnectCheckApi> => {
-    return apiMutator<EmailDomainConnectCheckApi>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
+    return apiMutator<EmailDomainConnectCheckApi>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
